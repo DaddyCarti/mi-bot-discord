@@ -26,7 +26,6 @@ try: warnings = json.load(open("warnings.json"))
 except: warnings = {}
 def save_warn(): json.dump(warnings, open("warnings.json","w"))
 
-# --- ESTILO ---
 COLOR_OK = 0x57F287
 COLOR_WARN = 0xFAA61A
 COLOR_ERROR = 0xED4245
@@ -39,6 +38,10 @@ async def on_ready(): print(f"✅ {bot.user}")
 @bot.command()
 async def ping(ctx):
     e = discord.Embed(title="🏓 Pong!", color=COLOR_OK); e.set_footer(text="Bot Pruebas", icon_url=bot.user.display_avatar.url); await ctx.send(embed=e)
+
+@bot.command(name="hola")
+async def hola(ctx):
+    await ctx.send(f"¡Hola {ctx.author.mention}! 👋")
 
 @bot.command(name="menu")
 async def menu(ctx):
@@ -57,7 +60,7 @@ async def admi(ctx):
     e = discord.Embed(title="🛡️ Panel Staff", description="**Solo funciona en canal admins**", color=COLOR_WARN)
     e.set_thumbnail(url=bot.user.display_avatar.url)
     e.add_field(name="Moderación", value="`!kick @usuario razón`\n`!ban @usuario razón tiempo`\n`!unban ID`\n`!mute @usuario tiempo razón`\n`!unmute @usuario`\n`!warn @usuario razón`\n`!warnings @usuario`\n`!clear 50`", inline=False)
-    e.add_field(name="Canal", value="`!lock` `!unlock` `!slowmode 5` `!nuke`", inline=False)
+    e.add_field(name="Canal", value="`!lock #canal` `!unlock #canal` `!slowmode 5` `!nuke`", inline=False)
     e.add_field(name="Info", value="`!userinfo @usuario` `!infoserver`", inline=False)
     e.set_footer(text="ServerPrueba Mod", icon_url=bot.user.display_avatar.url); await ctx.send(embed=e)
 
@@ -85,10 +88,12 @@ async def ban(ctx, member: discord.Member, *, args=""):
     if len(p)==2 and parse_tiempo(p[1]): t=parse_tiempo(p[1]); r=p[0]
     await ctx.guild.ban(member, reason=r)
     e = discord.Embed(title="🔨 Usuario Baneado", color=COLOR_ERROR); e.add_field(name="Usuario", value=member.mention); e.add_field(name="Razón", value=r)
-    if t: e.add_field(name="Duración", value=p[1]); e.set_thumbnail(url=member.display_avatar.url); await ctx.send(embed=e)
+    if t: e.add_field(name="Duración", value=p[1])
+    e.set_thumbnail(url=member.display_avatar.url); await ctx.send(embed=e)
     if t: await asyncio.sleep(t); await ctx.guild.unban(discord.Object(id=member.id))
 
 @bot.command()
+@commands.has_permissions(moderate_members=True)
 async def mute(ctx, member: discord.Member, tiempo: str, *, razon="Sin motivo"):
     if not admin_check(ctx): return
     s=parse_tiempo(tiempo) or 60
@@ -96,6 +101,7 @@ async def mute(ctx, member: discord.Member, tiempo: str, *, razon="Sin motivo"):
     e = discord.Embed(title="🔇 Usuario Silenciado", color=0x9B59B6); e.add_field(name="Usuario", value=member.mention); e.add_field(name="Tiempo", value=tiempo); e.add_field(name="Razón", value=razon); await ctx.send(embed=e)
 
 @bot.command()
+@commands.has_permissions(moderate_members=True)
 async def unmute(ctx, member: discord.Member):
     if not admin_check(ctx): return
     await member.timeout(None); e=discord.Embed(title="🔊 Silencio Removido", description=f"{member.mention} ya puede hablar", color=COLOR_OK); await ctx.send(embed=e)
@@ -112,21 +118,34 @@ async def warnings(ctx, member: discord.Member):
     w=warnings.get(str(member.id),[]); e=discord.Embed(title=f"📋 Warns de {member.display_name}", description=f"Total: **{len(w)}**", color=COLOR_INFO); e.set_thumbnail(url=member.display_avatar.url); await ctx.send(embed=e)
 
 @bot.command()
+@commands.has_permissions(manage_messages=True)
 async def clear(ctx, cant:int=10):
     if not admin_check(ctx): return
     await ctx.channel.purge(limit=cant+1); e=discord.Embed(title="🧹 Limpieza", description=f"{cant} mensajes borrados", color=COLOR_OK); await ctx.send(embed=e, delete_after=3)
 
+# --- CORREGIDO: ahora acepta #canal ---
 @bot.command()
-async def lock(ctx):
+@commands.has_permissions(manage_channels=True)
+async def lock(ctx, canal: discord.TextChannel = None):
     if not admin_check(ctx): return
-    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=False); e=discord.Embed(title="🔒 Canal Bloqueado", color=COLOR_ERROR); await ctx.send(embed=e)
+    target = canal or ctx.channel
+    await target.set_permissions(ctx.guild.default_role, send_messages=False)
+    e = discord.Embed(title="🔒 Canal Bloqueado", description=f"{target.mention} cerrado para @everyone", color=COLOR_ERROR)
+    e.set_footer(text="ServerPrueba Mod", icon_url=bot.user.display_avatar.url)
+    await ctx.send(embed=e)
 
 @bot.command()
-async def unlock(ctx):
+@commands.has_permissions(manage_channels=True)
+async def unlock(ctx, canal: discord.TextChannel = None):
     if not admin_check(ctx): return
-    await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=None); e=discord.Embed(title="🔓 Canal Desbloqueado", color=COLOR_OK); await ctx.send(embed=e)
+    target = canal or ctx.channel
+    await target.set_permissions(ctx.guild.default_role, send_messages=None)
+    e = discord.Embed(title="🔓 Canal Desbloqueado", description=f"{target.mention} abierto", color=COLOR_OK)
+    e.set_footer(text="ServerPrueba Mod", icon_url=bot.user.display_avatar.url)
+    await ctx.send(embed=e)
 
 @bot.command()
+@commands.has_permissions(manage_channels=True)
 async def slowmode(ctx, seg:int):
     if not admin_check(ctx): return
     await ctx.channel.edit(slowmode_delay=seg); e=discord.Embed(title="🐢 Slowmode", description=f"{seg} segundos", color=COLOR_INFO); await ctx.send(embed=e)
