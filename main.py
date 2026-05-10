@@ -1,221 +1,421 @@
-# =========================================
-# SERVERPRUEBA BOT v4.0 PRODUCTION
-# Autor: Meta AI para Daniel
-# Características: Tickets, Roles, Mod, Logs, Stats, Anti-Link
-# Canal Tickets: 1502942029397753866
-# =========================================
+"""
+SERVERPRUEBA BOT v7.0 PROFESSIONAL
+Desarrollado para: daddy_carti
+Arquitectura: Modular, asíncrona, production-ready
+Fecha: 2026
+"""
 import discord
 from discord.ext import commands, tasks
-import os, json, re, asyncio
+import os
+import json
+import re
+import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
+from typing import Optional, Dict, List
 from dotenv import load_dotenv
 
+# =========================================
+# CONFIGURACIÓN PROFESIONAL
+# =========================================
 load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
 
-# ---------- CONFIGURACIÓN ----------
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-intents.presences = True
-
-bot = commands.Bot(
-    command_prefix="!",
-    intents=intents,
-    help_command=None,
-    case_insensitive=True,
-    strip_after_prefix=True
+# Logging profesional
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
+logger = logging.getLogger('ServerPrueba')
 
-# IDs DE TU SERVIDOR
-GUILD_ID = 1502889233369534494
-CANAL_ADMINS = 1502920731372163112
-CANAL_GENERAL = 1502889242072842303
-CANAL_TICKET_PANEL = 1502942029397753866
-TICKETS_CATEGORY = "🎫 TICKETS"
-LOGS_CHANNEL = "📜-logs"
-TICKET_ROLE = "ticket"
+class Config:
+    """Configuración centralizada del bot"""
+    TOKEN = os.getenv("DISCORD_TOKEN")
+    GUILD_ID = 1502889233369534494
+    CANAL_ADMINS = 1502920731372163112
+    CANAL_GENERAL = 1502889242072842303
+    CANAL_TICKETS = 1502942029397753866
+    CANAL_AUTOROLES = 1502947801770885120
 
-COLORS = {
-    "success": 0x57F287,
-    "warning": 0xFAA61A,
-    "error": 0xED4245,
-    "info": 0x5865F2,
-    "primary": 0x2B2D31
+    COLORS = {
+        "success": 0x57F287,
+        "warning": 0xFAA61A,
+        "error": 0xED4245,
+        "info": 0x5865F2,
+        "primary": 0x2B2D31
+    }
+
+    FOOTER_TEXT = "by: daddy_carti"
+    BANNER_FILE = "Banner_de_Tickets.jpg"
+
+# Datos para autoroles
+AUTOROLES_DATA = {
+    "paises": [
+        "🇲🇽 México", "🇨🇴 Colombia", "🇦🇷 Argentina", "🇪🇸 España",
+        "🇵🇪 Perú", "🇨🇱 Chile", "🇻🇪 Venezuela", "🇪🇨 Ecuador",
+        "🇧🇴 Bolivia", "🇺🇾 Uruguay", "🇵🇾 Paraguay", "🇬🇹 Guatemala",
+        "🇭🇳 Honduras", "🇸🇻 El Salvador", "🇳🇮 Nicaragua", "🇨🇷 Costa Rica",
+        "🇵🇦 Panamá", "🇩🇴 Rep. Dominicana", "🇨🇺 Cuba", "🇺🇸 USA", "🇧🇷 Brasil"
+    ],
+    "edades": ["13-15", "16-18", "19-21", "22-25", "26+"],
+    "plataformas": ["💻 PC", "📱 Móvil", "🎮 PlayStation", "🎮 Xbox", "🎮 Nintendo"]
 }
 
-# ---------- BASE DE DATOS ----------
-class Database:
-    @staticmethod
-    def load(filename, default):
+# =========================================
+# SISTEMA DE BASE DE DATOS PROFESIONAL
+# =========================================
+class DatabaseManager:
+    """Manejador de bases de datos JSON con cache"""
+
+    def __init__(self):
+        self.cache: Dict[str, dict] = {}
+        self.files = {
+            "warnings": "warnings.json",
+            "antilink": "antilink.json",
+            "stats": "stats.json",
+            "tempbans": "tempbans.json",
+            "panels": "panel.json"
+        }
+        self._load_all()
+
+    def _load_all(self):
+        for key, filename in self.files.items():
+            try:
+                with open(filename, 'r', encoding='utf-8') as f:
+                    self.cache[key] = json.load(f)
+            except FileNotFoundError:
+                self.cache[key] = self._get_default(key)
+                self.save(key)
+            except Exception as e:
+                logger.error(f"Error cargando {filename}: {e}")
+                self.cache[key] = self._get_default(key)
+
+    def _get_default(self, key: str) -> dict:
+        defaults = {
+            "warnings": {},
+            "antilink": {"enabled": True, "whitelist": []},
+            "stats": {},
+            "tempbans": {},
+            "panels": {}
+        }
+        return defaults.get(key, {})
+
+    def get(self, key: str) -> dict:
+        return self.cache.get(key, {})
+
+    def set(self, key: str, data: dict):
+        self.cache[key] = data
+        self.save(key)
+
+    def save(self, key: str):
         try:
-            with open(filename, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except: return default
+            filename = self.files.get(key)
+            if filename:
+                with open(filename, 'w', encoding='utf-8') as f:
+                    json.dump(self.cache[key], f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Error guardando {key}: {e}")
+
+db = DatabaseManager()
+
+# =========================================
+# UTILIDADES
+# =========================================
+class Utils:
+    @staticmethod
+    def admin_only():
+        async def predicate(ctx):
+            if ctx.channel.id!= Config.CANAL_ADMINS:
+                embed = discord.Embed(
+                    title="❌ Acceso Denegado",
+                    description=f"Usa este comando en <#{Config.CANAL_ADMINS}>",
+                    color=Config.COLORS["error"]
+                )
+                embed.set_footer(text=Config.FOOTER_TEXT)
+                await ctx.send(embed=embed, delete_after=5)
+                return False
+            return True
+        return commands.check(predicate)
 
     @staticmethod
-    def save(filename, data):
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+    def parse_duration(text: str) -> Optional[int]:
+        match = re.match(r"^(\d+)(s|m|h|d|w)$", text.lower())
+        if not match:
+            return None
+        value, unit = int(match[1]), match[2]
+        multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+        return value * multipliers[unit]
 
-warnings = Database.load("warnings.json", {})
-antilink = Database.load("antilink.json", {"enabled": True, "whitelist": []})
-stats = Database.load("stats.json", {})
-tempbans = Database.load("tempbans.json", {})
+    @staticmethod
+    async def send_log(guild: discord.Guild, title: str, description: str, color: int):
+        channel = discord.utils.get(guild.text_channels, name="📜-logs")
+        if not channel:
+            return
 
-# ---------- UTILIDADES ----------
-def admin_only():
-    async def predicate(ctx):
-        if ctx.channel.id!= CANAL_ADMINS:
-            embed = discord.Embed(
-                title="❌ Comando Restringido",
-                description=f"Usa este comando en <#{CANAL_ADMINS}>",
-                color=COLORS["error"]
-            )
-            await ctx.send(embed=embed, delete_after=5)
-            return False
-        return True
-    return commands.check(predicate)
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=color,
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.set_footer(text=Config.FOOTER_TEXT, icon_url=guild.me.display_avatar.url)
 
-def parse_duration(text: str) -> int:
-    """Convierte 10m, 2h, 1d a segundos"""
-    match = re.match(r"^(\d+)(s|m|h|d|w)$", text.lower())
-    if not match: return None
-    value, unit = int(match[1]), match[2]
-    multipliers = {"s":1, "m":60, "h":3600, "d":86400, "w":604800}
-    return value * multipliers[unit]
+        try:
+            await channel.send(embed=embed)
+        except Exception as e:
+            logger.error(f"Error enviando log: {e}")
 
-async def send_log(guild: discord.Guild, title: str, description: str, color: int):
-    channel = discord.utils.get(guild.text_channels, name=LOGS_CHANNEL)
-    if channel:
-        embed = discord.Embed(title=title, description=description, color=color, timestamp=datetime.now(timezone.utc))
-        embed.set_footer(text=bot.user.name, icon_url=bot.user.display_avatar.url)
-        await channel.send(embed=embed)
+    @staticmethod
+    def create_embed(title: str, description: str = None, color: str = "info") -> discord.Embed:
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=Config.COLORS.get(color, Config.COLORS["info"]),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.set_footer(text=Config.FOOTER_TEXT)
+        return embed
 
 # =========================================
-# SISTEMA DE TICKETS - VISTA PERSISTENTE
+# VISTAS PERSISTENTES
 # =========================================
+class AutoroleView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.select(
+        custom_id="autorole_pais_v2",
+        placeholder="🌎 Selecciona tu país",
+        options=[
+            discord.SelectOption(
+                label=p.split(" ")[1],
+                emoji=p.split(" ")[0],
+                value=p.split(" ")[1]
+            ) for p in AUTOROLES_DATA["paises"]
+        ]
+    )
+    async def pais_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            user = interaction.user
+            guild = interaction.guild
+            selected = select.values[0]
+
+            # Remover países anteriores
+            paises_nombres = [p.split(" ")[1] for p in AUTOROLES_DATA["paises"]]
+            roles_a_quitar = [r for r in user.roles if r.name in paises_nombres]
+
+            if roles_a_quitar:
+                await user.remove_roles(*roles_a_quitar, reason="Cambio de país")
+
+            # Añadir nuevo rol
+            role = discord.utils.get(guild.roles, name=selected)
+            if role:
+                await user.add_roles(role, reason="Autorol: País")
+                embed = Utils.create_embed("✅ País Actualizado", f"Ahora eres de **{selected}**", "success")
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                await Utils.send_log(guild, "🌎 Autorol País", f"{user.mention} → {selected}", Config.COLORS["info"])
+            else:
+                await interaction.followup.send("❌ Rol no encontrado. Contacta a un admin.", ephemeral=True)
+
+        except Exception as e:
+            logger.error(f"Error en autorol país: {e}")
+            await interaction.followup.send("❌ Error al asignar rol", ephemeral=True)
+
+    @discord.ui.select(
+        custom_id="autorole_edad_v2",
+        placeholder="🎂 Selecciona tu edad",
+        options=[discord.SelectOption(label=e, value=e) for e in AUTOROLES_DATA["edades"]]
+    )
+    async def edad_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            user = interaction.user
+            guild = interaction.guild
+            selected = select.values[0]
+
+            # Remover edades anteriores
+            roles_a_quitar = [r for r in user.roles if r.name in AUTOROLES_DATA["edades"]]
+            if roles_a_quitar:
+                await user.remove_roles(*roles_a_quitar, reason="Cambio de edad")
+
+            role = discord.utils.get(guild.roles, name=selected)
+            if role:
+                await user.add_roles(role, reason="Autorol: Edad")
+                embed = Utils.create_embed("✅ Edad Actualizada", f"Tu rango: **{selected}**", "success")
+                await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error en autorol edad: {e}")
+
+    @discord.ui.select(
+        custom_id="autorole_plataforma_v2",
+        placeholder="🎮 Selecciona tus plataformas",
+        min_values=1,
+        max_values=3,
+        options=[
+            discord.SelectOption(
+                label=p.split(" ")[1],
+                emoji=p.split(" ")[0],
+                value=p.split(" ")[1]
+            ) for p in AUTOROLES_DATA["plataformas"]
+        ]
+    )
+    async def plataforma_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            user = interaction.user
+            guild = interaction.guild
+
+            # Remover plataformas anteriores
+            plat_nombres = [p.split(" ")[1] for p in AUTOROLES_DATA["plataformas"]]
+            roles_a_quitar = [r for r in user.roles if r.name in plat_nombres]
+
+            if roles_a_quitar:
+                await user.remove_roles(*roles_a_quitar, reason="Cambio de plataforma")
+
+            # Añadir nuevas
+            roles_a_añadir = []
+            for value in select.values:
+                role = discord.utils.get(guild.roles, name=value)
+                if role:
+                    roles_a_añadir.append(role)
+
+            if roles_a_añadir:
+                await user.add_roles(*roles_a_añadir, reason="Autorol: Plataformas")
+                embed = Utils.create_embed("✅ Plataformas Actualizadas", f"Juegas en: **{', '.join(select.values)}**", "success")
+                await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error en autorol plataforma: {e}")
+
 class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.select(
-        custom_id="persistent_ticket_select",
-        placeholder="🎫 Selecciona el motivo para abrir un ticket",
-        min_values=1,
-        max_values=1,
+        custom_id="ticket_select_v2",
+        placeholder="🎫 Selecciona el tipo de ticket",
         options=[
-            discord.SelectOption(
-                label="Soporte General",
-                value="soporte",
-                description="Ayuda con el servidor, bugs o dudas",
-                emoji="🛠️"
-            ),
-            discord.SelectOption(
-                label="Compras y Donaciones",
-                value="compras",
-                description="Información sobre VIP, rangos y pagos",
-                emoji="💰"
-            ),
-            discord.SelectOption(
-                label="Reportar Usuario",
-                value="reporte",
-                description="Reportar mal comportamiento",
-                emoji="🚨"
-            )
+            discord.SelectOption(label="Soporte General", value="soporte", description="Ayuda con el servidor", emoji="🛠️"),
+            discord.SelectOption(label="Compras y VIP", value="compras", description="Información de pagos", emoji="💰"),
+            discord.SelectOption(label="Reportar Usuario", value="reporte", description="Reportar mal comportamiento", emoji="🚨"),
+            discord.SelectOption(label="Apelación", value="apelacion", description="Apelar una sanción", emoji="⚖️"),
+            discord.SelectOption(label="Bug Report", value="bug", description="Reportar error del bot", emoji="🐛")
         ]
     )
     async def ticket_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         await interaction.response.defer(ephemeral=True)
-        guild = interaction.guild
-        user = interaction.user
 
-        # Verificar ticket existente
-        category = discord.utils.get(guild.categories, name=TICKETS_CATEGORY)
-        if not category:
-            category = await guild.create_category(TICKETS_CATEGORY)
+        try:
+            guild = interaction.guild
+            user = interaction.user
 
-        existing = discord.utils.get(category.text_channels, name=f"ticket-{user.name.lower()}")
-        if existing:
-            return await interaction.followup.send(
-                embed=discord.Embed(
-                    title="⚠️ Ticket Existente",
-                    description=f"Ya tienes un ticket abierto: {existing.mention}",
-                    color=COLORS["warning"]
+            # Verificar ticket existente
+            category = discord.utils.get(guild.categories, name="🎫 TICKETS")
+            if not category:
+                category = await guild.create_category("🎫 TICKETS")
+
+            existing = discord.utils.get(category.text_channels, name=f"ticket-{user.name.lower()}")
+            if existing:
+                embed = Utils.create_embed("⚠️ Ticket Existente", f"Ya tienes un ticket: {existing.mention}", "warning")
+                return await interaction.followup.send(embed=embed, ephemeral=True)
+
+            # Crear permisos
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                user: discord.PermissionOverwrite(
+                    view_channel=True, send_messages=True, read_message_history=True,
+                    attach_files=True, embed_links=True, use_application_commands=True
                 ),
-                ephemeral=True
+                guild.me: discord.PermissionOverwrite(view_channel=True, manage_channels=True, manage_messages=True)
+            }
+
+            # Añadir rol de staff
+            for role in guild.roles:
+                if role.permissions.manage_messages or role.permissions.administrator:
+                    overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+
+            # Crear canal
+            channel = await guild.create_text_channel(
+                name=f"ticket-{user.name}",
+                category=category,
+                overwrites=overwrites,
+                topic=f"Usuario: {user.id} | Tipo: {select.values[0]} | Creado: {datetime.now().isoformat()}"
             )
 
-        # Crear permisos
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            user: discord.PermissionOverwrite(
-                view_channel=True, send_messages=True, read_message_history=True,
-                attach_files=True, embed_links=True
-            ),
-            guild.me: discord.PermissionOverwrite(view_channel=True, manage_channels=True, manage_messages=True)
-        }
+            embed = discord.Embed(
+                title=f"🎫 Ticket - {select.values[0].title()}",
+                description=(
+                    f"¡Hola {user.mention}!\n\n"
+                    f"**Tipo:** {select.values[0].title()}\n"
+                    f"**Creado:** <t:{int(datetime.now().timestamp())}:F>\n\n"
+                    f"**📋 Por favor describe:**\n"
+                    f"• Tu problema con detalles\n"
+                    f"• Capturas si es necesario\n"
+                    f"• Qué esperas que hagamos\n\n"
+                    f"Un miembro del staff te atenderá pronto.\n"
+                    f"Usa `!close` para cerrar cuando termines."
+                ),
+                color=Config.COLORS["info"],
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.set_footer(text=Config.FOOTER_TEXT)
 
-        # Añadir rol de ticket y staff
-        if ticket_role := discord.utils.get(guild.roles, name=TICKET_ROLE):
-            overwrites[ticket_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+            await channel.send(content=f"{user.mention}", embed=embed)
 
-        for role in guild.roles:
-            if role.permissions.manage_messages or role.permissions.administrator:
-                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+            success_embed = Utils.create_embed("✅ Ticket Creado", f"Tu ticket: {channel.mention}", "success")
+            await interaction.followup.send(embed=success_embed, ephemeral=True)
 
-        # Crear canal
-        channel = await guild.create_text_channel(
-            name=f"ticket-{user.name}",
-            category=category,
-            overwrites=overwrites,
-            topic=f"USER:{user.id}|TYPE:{select.values[0]}|CREATED:{datetime.now().isoformat()}"
-        )
+            await Utils.send_log(guild, "🎫 Ticket Abierto", f"{user.mention} abrió ticket de **{select.values[0]}**", Config.COLORS["info"])
 
-        # Mensaje de bienvenida
-        embed = discord.Embed(
-            title=f"🎫 Ticket de {select.values[0].title()}",
-            description=(
-                f"¡Hola {user.mention}!\n\n"
-                f"**Motivo:** {select.values[0].title()}\n\n"
-                f"**📋 REGLAS:**\n"
-                f"• Explica tu problema con detalles\n"
-                f"• No hagas spam ni menciones innecesarias\n"
-                f"• Sé paciente, el staff te atenderá\n"
-                f"• Usa `!close` para cerrar cuando termines"
-            ),
-            color=COLORS["info"],
-            timestamp=datetime.now(timezone.utc)
-        )
-        embed.set_footer(text=f"Ticket ID: {channel.id}")
-
-        await channel.send(content=f"{user.mention} {ticket_role.mention if ticket_role else ''}", embed=embed)
-        await interaction.followup.send(
-            embed=discord.Embed(
-                title="✅ Ticket Creado",
-                description=f"Tu ticket ha sido creado: {channel.mention}",
-                color=COLORS["success"]
-            ),
-            ephemeral=True
-        )
-        await send_log(guild, "🎫 Ticket Abierto", f"{user.mention} abrió ticket de **{select.values[0]}**", COLORS["info"])
+        except Exception as e:
+            logger.error(f"Error creando ticket: {e}")
+            await interaction.followup.send("❌ Error al crear ticket. Contacta a un admin.", ephemeral=True)
 
 # =========================================
-# EVENTOS PRINCIPALES
+# BOT SETUP
+# =========================================
+class ServerPruebaBot(commands.Bot):
+    def __init__(self):
+        super().__init__(
+            command_prefix="!",
+            intents=intents,
+            help_command=None,
+            case_insensitive=True,
+            strip_after_prefix=True,
+            activity=discord.Activity(type=discord.ActivityType.watching, name="ServerPrueba |!menu")
+        )
+
+    async def setup_hook(self):
+        self.add_view(TicketView())
+        self.add_view(AutoroleView())
+        logger.info("Vistas persistentes registradas")
+
+bot = ServerPruebaBot()
+
+# =========================================
+# EVENTOS
 # =========================================
 @bot.event
 async def on_ready():
-    print(f"\n{'='*50}\n✅ BOT CONECTADO: {bot.user}\n📊 Servidores: {len(bot.guilds)}\n👥 Usuarios: {sum(g.member_count for g in bot.guilds)}\n{'='*50}\n")
-
-    # Registrar vista persistente
-    bot.add_view(TicketView())
+    logger.info(f"{'='*60}")
+    logger.info(f"BOT CONECTADO: {bot.user} (ID: {bot.user.id})")
+    logger.info(f"SERVIDORES: {len(bot.guilds)}")
+    logger.info(f"USUARIOS: {sum(g.member_count for g in bot.guilds)}")
+    logger.info(f"LATENCIA: {round(bot.latency * 1000)}ms")
+    logger.info(f"{'='*60}")
 
     # Crear canal de logs si no existe
     for guild in bot.guilds:
-        if not discord.utils.get(guild.text_channels, name=LOGS_CHANNEL):
-            await guild.create_text_channel(LOGS_CHANNEL)
+        if not discord.utils.get(guild.text_channels, name="📜-logs"):
+            try:
+                await guild.create_text_channel("📜-logs")
+                logger.info(f"Canal de logs creado en {guild.name}")
+            except:
+                pass
 
-    # Iniciar tareas
     if not update_stats.is_running():
         update_stats.start()
     if not check_tempbans.is_running():
@@ -223,411 +423,515 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    if message.author.bot or not message.guild:
-        return await bot.process_commands(message)
+    if message.author.bot:
+        return
 
     # Anti-link
-    if antilink["enabled"] and re.search(r"discord(?:\.gg|com/invite)/[a-zA-Z0-9]+", message.content):
-        if not message.author.guild_permissions.manage_messages:
-            if message.channel.id not in antilink["whitelist"]:
-                await message.delete()
-                warn_embed = discord.Embed(
-                    title="🔗 Enlace No Permitido",
-                    description=f"{message.author.mention}, los invites de Discord no están permitidos aquí.",
-                    color=COLORS["error"]
-                )
-                await message.channel.send(embed=warn_embed, delete_after=5)
-                await send_log(message.guild, "Anti-Link", f"{message.author} intentó enviar invite", COLORS["error"])
+    if message.guild and db.get("antilink").get("enabled"):
+        if re.search(r"discord(?:\.gg|com/invite|app\.com/invite)/\w+", message.content.lower()):
+            if not message.author.guild_permissions.manage_messages:
+                try:
+                    await message.delete()
+                    embed = Utils.create_embed("🔗 Enlace Bloqueado", f"{message.author.mention}, los invites no están permitidos", "error")
+                    await message.channel.send(embed=embed, delete_after=5)
+                    await Utils.send_log(message.guild, "🛡️ Anti-Link", f"{message.author} intentó enviar invite", Config.COLORS["error"])
+                except:
+                    pass
                 return
 
     await bot.process_commands(message)
 
 @bot.event
 async def on_member_join(member):
-    await send_log(member.guild, "📥 Miembro Nuevo", f"{member.mention} se unió al servidor\n**Cuenta creada:** <t:{int(member.created_at.timestamp())}:R>", COLORS["success"])
+    await Utils.send_log(
+        member.guild,
+        "📥 Nuevo Miembro",
+        f"{member.mention} se unió al servidor\n**Cuenta creada:** <t:{int(member.created_at.timestamp())}:R>\n**ID:** {member.id}",
+        Config.COLORS["success"]
+    )
 
 @bot.event
 async def on_member_remove(member):
-    await send_log(member.guild, "📤 Miembro Salió", f"**{member}** abandonó el servidor", COLORS["warning"])
+    await Utils.send_log(
+        member.guild,
+        "📤 Miembro Salió",
+        f"**{member}** ({member.id}) abandonó el servidor",
+        Config.COLORS["warning"]
+    )
 
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
     elif isinstance(error, commands.MissingPermissions):
-        embed = discord.Embed(title="❌ Sin Permisos", description="No tienes permisos para usar este comando", color=COLORS["error"])
+        embed = Utils.create_embed("❌ Sin Permisos", "No tienes permisos para usar este comando", "error")
         await ctx.send(embed=embed, delete_after=5)
     elif isinstance(error, commands.CheckFailure):
         return
     else:
-        print(f"Error: {error}")
+        logger.error(f"Error en comando {ctx.command}: {error}")
+        embed = Utils.create_embed("❌ Error", "Ocurrió un error ejecutando el comando", "error")
+        await ctx.send(embed=embed, delete_after=5)
 
 # =========================================
 # COMANDOS DE USUARIO
 # =========================================
-@bot.command(name="ping")
+@bot.command(name="ping", aliases=["latencia"])
 async def ping_cmd(ctx):
+    """Muestra la latencia del bot"""
     latency = round(bot.latency * 1000)
-    embed = discord.Embed(title="🏓 Pong!", description=f"**Latencia:** `{latency}ms`\n**Uptime:** <t:{int(bot.user.created_at.timestamp())}:R>", color=COLORS["success"])
+    embed = Utils.create_embed("🏓 Pong!", f"**Latencia:** `{latency}ms`\n**Uptime:** <t:{int(bot.user.created_at.timestamp())}:R>", "success")
     await ctx.send(embed=embed)
 
-@bot.command(name="hola")
+@bot.command(name="hola", aliases=["hi", "hello"])
 async def hola_cmd(ctx):
-    await ctx.send(f"👋 ¡Hola {ctx.author.mention}! Usa `!menu` para ver todos mis comandos.")
+    """Saludo del bot"""
+    responses = [
+        f"👋 ¡Hola {ctx.author.mention}!",
+        f"¡Hey {ctx.author.mention}! ¿Cómo estás?",
+        f"¡Saludos {ctx.author.mention}! Usa `!menu`"
+    ]
+    await ctx.send(responses[hash(ctx.author.id) % len(responses)])
 
-@bot.command(name="menu")
+@bot.command(name="menu", aliases=["help", "ayuda"])
 async def menu_cmd(ctx):
+    """Menú principal de comandos"""
     embed = discord.Embed(
-        title="📜 MENÚ DE COMANDOS",
-        description=f"Hola {ctx.author.mention}, estos son mis comandos disponibles:",
-        color=COLORS["info"],
+        title="📜 MENÚ PRINCIPAL",
+        description=f"¡Hola {ctx.author.mention}!\n\nBienvenido a **ServerPrueba**",
+        color=Config.COLORS["info"],
         timestamp=datetime.now(timezone.utc)
     )
-    embed.add_field(name="🔹 Generales", value="`!ping` - Ver latencia\n`!hola` - Saludo\n`!menu` - Este menú", inline=False)
-    embed.add_field(name="🎫 Tickets", value="`!close` - Cerrar tu ticket actual", inline=False)
-    embed.add_field(name="🎭 Roles", value="`!rol list` - Ver roles disponibles\n`!rol join <nombre>` - Obtener un rol\n`!rol leave <nombre>` - Quitar un rol", inline=False)
+
+    embed.add_field(
+        name="🔹 Comandos Básicos",
+        value="`!ping` - Ver latencia\n`!hola` - Saludo\n`!menu` - Este menú",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎫 Soporte",
+        value="`!close` - Cerrar ticket\nUsa el panel de tickets para abrir uno",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎭 Personalización",
+        value="Ve al canal de roles para personalizar tu perfil",
+        inline=False
+    )
+
     embed.set_thumbnail(url=bot.user.display_avatar.url)
-    embed.set_footer(text="ServerPrueba Bot v4.0")
+    embed.set_footer(text=Config.FOOTER_TEXT, icon_url=bot.user.display_avatar.url)
+
     await ctx.send(embed=embed)
 
 # =========================================
-# SISTEMA DE ROLES
+# COMANDOS DE ADMINISTRACIÓN
 # =========================================
-@bot.group(name="rol", invoke_without_command=True)
-async def rol_group(ctx):
-    embed = discord.Embed(title="🎭 Sistema de Roles", color=COLORS["info"])
-    embed.add_field(name="👤 Usuarios", value="`!rol list`\n`!rol join NombreDelRol`\n`!rol leave NombreDelRol`", inline=True)
-    embed.add_field(name="🛡️ Staff", value="`!rol add @usuario @rol`\n`!rol remove @usuario @rol`\n`!rol create Nombre Color`\n`!rol delete Nombre`", inline=True)
-    await ctx.send(embed=embed)
-
-@rol_group.command(name="list")
-async def rol_list(ctx):
-    roles = [r for r in ctx.guild.roles if not r.managed and r!= ctx.guild.default_role and not r.permissions.administrator and r < ctx.guild.me.top_role and not r.is_premium_subscriber()]
-    roles_sorted = sorted(roles, key=lambda r: r.position, reverse=True)[:30]
-    description = "\n".join([f"{r.mention} - `{r.name}`" for r in roles_sorted]) or "No hay roles disponibles"
-    embed = discord.Embed(title="🎭 Roles Auto-Asignables", description=description, color=COLORS["info"])
-    await ctx.send(embed=embed)
-
-@rol_group.command(name="join")
-async def rol_join(ctx, *, nombre: str):
-    role = discord.utils.get(ctx.guild.roles, name=nombre)
-    if not role:
-        return await ctx.send(embed=discord.Embed(title="❌ No encontrado", description=f"No existe el rol `{nombre}`", color=COLORS["error"]))
-    if role.permissions.administrator or role >= ctx.guild.me.top_role:
-        return await ctx.send(embed=discord.Embed(title="❌ No permitido", description="No puedes obtener ese rol", color=COLORS["error"]))
-    await ctx.author.add_roles(role, reason="Auto-rol")
-    await ctx.send(embed=discord.Embed(title="✅ Rol Añadido", description=f"Ahora tienes {role.mention}", color=COLORS["success"]))
-
-@rol_group.command(name="leave")
-async def rol_leave(ctx, *, nombre: str):
-    role = discord.utils.get(ctx.guild.roles, name=nombre)
-    if role and role in ctx.author.roles:
-        await ctx.author.remove_roles(role, reason="Auto-rol removido")
-        await ctx.send(embed=discord.Embed(title="✅ Rol Removido", description=f"Se quitó {role.mention}", color=COLORS["warning"]))
-
-@rol_group.command(name="add")
-@admin_only()
-@commands.has_permissions(manage_roles=True)
-async def rol_add(ctx, member: discord.Member, role: discord.Role):
-    await member.add_roles(role, reason=f"Añadido por {ctx.author}")
-    await ctx.send(embed=discord.Embed(title="✅ Rol Asignado", description=f"{role.mention} → {member.mention}", color=COLORS["success"]))
-    await send_log(ctx.guild, "Rol Añadido", f"{ctx.author.mention} dio {role.mention} a {member.mention}", COLORS["success"])
-
-@rol_group.command(name="remove")
-@admin_only()
-@commands.has_permissions(manage_roles=True)
-async def rol_remove(ctx, member: discord.Member, role: discord.Role):
-    await member.remove_roles(role, reason=f"Removido por {ctx.author}")
-    await ctx.send(embed=discord.Embed(title="✅ Rol Removido", color=COLORS["warning"]))
-
-@rol_group.command(name="create")
-@admin_only()
-@commands.has_permissions(manage_roles=True)
-async def rol_create(ctx, nombre: str, color: str = "5865F2"):
-    try:
-        color_int = int(color.replace("#", ""), 16)
-        role = await ctx.guild.create_role(name=nombre, color=discord.Color(color_int), reason=f"Creado por {ctx.author}")
-        await ctx.send(embed=discord.Embed(title="✅ Rol Creado", description=f"{role.mention} creado con color `#{color}`", color=role.color))
-    except: await ctx.send("❌ Color inválido. Usa formato HEX: FF0000")
-
-@rol_group.command(name="delete")
-@admin_only()
-@commands.has_permissions(manage_roles=True)
-async def rol_delete(ctx, *, nombre: str):
-    if role := discord.utils.get(ctx.guild.roles, name=nombre):
-        await role.delete(reason=f"Eliminado por {ctx.author}")
-        await ctx.send(embed=discord.Embed(title="🗑️ Rol Eliminado", color=COLORS["error"]))
-
-# =========================================
-# PANEL STAFF Y TICKETS
-# =========================================
-@bot.command(name="admi")
+@bot.command(name="admi", aliases=["admin", "panel"])
 @commands.has_permissions(manage_messages=True)
-@admin_only()
+@Utils.admin_only()
 async def admin_panel(ctx):
-    embed = discord.Embed(title="🛡️ PANEL DE ADMINISTRACIÓN", description=f"**Servidor:** {ctx.guild.name}", color=COLORS["warning"], timestamp=datetime.now(timezone.utc))
-    embed.add_field(name="🔨 MODERACIÓN", value="`!kick @user razón`\n`!ban @user  razón`\n`!unban ID`\n`!mute @user 10m razón`\n`!unmute @user`\n`!warn @user razón`\n`!warnings @user`", inline=True)
-    embed.add_field(name="🧹 GESTIÓN", value="`!clear [5-100]`\n`!lock [#canal]`\n`!unlock [#canal]`\n`!slowmode [0-21600]`", inline=True)
-    embed.add_field(name="🎭 ROLES", value="`!rol add/remove`\n`!rol create/delete`", inline=True)
-    embed.add_field(name="🎫 TICKETS", value="`!setup-tickets`\n`!close`", inline=True)
-    embed.add_field(name="📊 INFO", value="`!userinfo [@user]`\n`!infoserver`\n`!anunciar texto`", inline=True)
-    embed.add_field(name="⚙️ SISTEMA", value="`!stats`\n`!delstats`\n`!linkS` / `!linkN`", inline=True)
-    embed.set_thumbnail(url=bot.user.display_avatar.url)
+    """Panel de administración"""
+    embed = discord.Embed(
+        title="🛡️ PANEL DE ADMINISTRACIÓN",
+        description=f"**Servidor:** {ctx.guild.name}\n**Admin:** {ctx.author.mention}",
+        color=Config.COLORS["warning"],
+        timestamp=datetime.now(timezone.utc)
+    )
+
+    embed.add_field(
+        name="🔨 Moderación",
+        value="`!kick @user razón`\n`!ban @user razón`\n`!unban ID`\n`!mute @user 10m`\n`!unmute @user`\n`!warn @user razón`\n`!clear 10`",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🔒 Canales",
+        value="`!lock`\n`!unlock`\n`!slowmode 5`",
+        inline=True
+    )
+
+    embed.add_field(
+        name="⚙️ Sistemas",
+        value="`!setup-tickets`\n`!setup-autoroles`\n`!create-roles-paises`",
+        inline=True
+    )
+
+    embed.add_field(
+        name="📊 Información",
+        value="`!userinfo [@user]`\n`!infoserver`\n`!anunciar texto`",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🛠️ Utilidades",
+        value="`!stats`\n`!linkS` / `!linkN`",
+        inline=True
+    )
+
+    embed.set_footer(text=Config.FOOTER_TEXT)
     await ctx.send(embed=embed)
 
-@bot.command(name="setup-tickets")
-@admin_only()
+@bot.command(name="create-roles-paises")
+@Utils.admin_only()
+@commands.has_permissions(manage_roles=True)
+async def create_roles_paises(ctx):
+    """Crea todos los roles de autoroles"""
+    msg = await ctx.send("⏳ Creando roles de autoroles...")
+
+    todos_roles = []
+    todos_roles.extend([p.split(" ")[1] for p in AUTOROLES_DATA["paises"]])
+    todos_roles.extend(AUTOROLES_DATA["edades"])
+    todos_roles.extend([p.split(" ")[1] for p in AUTOROLES_DATA["plataformas"]])
+
+    creados = 0
+    existentes = 0
+
+    for nombre in todos_roles:
+        if not discord.utils.get(ctx.guild.roles, name=nombre):
+            try:
+                await ctx.guild.create_role(name=nombre, reason="Sistema de autoroles")
+                creados += 1
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                logger.error(f"Error creando rol {nombre}: {e}")
+        else:
+            existentes += 1
+
+    embed = Utils.create_embed(
+        "✅ Roles Creados",
+        f"**Nuevos:** {creados}\n**Ya existían:** {existentes}\n**Total:** {len(todos_roles)}",
+        "success"
+    )
+    await msg.edit(content=None, embed=embed)
+
+@bot.command(name="setup-autoroles")
+@Utils.admin_only()
 @commands.has_permissions(administrator=True)
-async def setup_tickets(ctx):
-    channel = bot.get_channel(CANAL_TICKET_PANEL)
+async def setup_autoroles(ctx):
+    """Configura el panel de autoroles"""
+    channel = bot.get_channel(Config.CANAL_AUTOROLES)
     if not channel:
         return await ctx.send("❌ Canal no encontrado")
 
-    # Limpiar mensajes antiguos del bot
-    async for msg in channel.history(limit=50):
-        if msg.author == bot.user:
-            await msg.delete()
+    embed = discord.Embed(
+        title="🎭 PERSONALIZA TU PERFIL",
+        description=(
+            "**Usa los menús de abajo para obtener tus roles**\n\n"
+            "🌎 **País** → Muestra de dónde eres\n"
+            "🎂 **Edad** → Tu rango de edad\n"
+            "🎮 **Plataforma** → Dónde juegas (máx. 3)\n\n"
+            "*Los roles se asignan automáticamente*"
+        ),
+        color=Config.COLORS["info"]
+    )
+    embed.set_footer(text=Config.FOOTER_TEXT)
+
+    try:
+        file = discord.File(Config.BANNER_FILE, filename="banner.jpg")
+        embed.set_image(url="attachment://banner.jpg")
+    except:
+        file = None
+        logger.warning("Banner no encontrado para autoroles")
+
+    panels = db.get("panels")
+    if msg_id := panels.get("autoroles"):
+        try:
+            msg = await channel.fetch_message(msg_id)
+            await msg.edit(embed=embed, attachments=[file] if file else [], view=AutoroleView())
+            embed_success = Utils.create_embed("✅ Panel Actualizado", "El panel de autoroles se actualizó correctamente", "success")
+            return await ctx.send(embed=embed_success)
+        except Exception as e:
+            logger.error(f"Error editando panel autoroles: {e}")
+
+    try:
+        if file:
+            msg = await channel.send(file=file, embed=embed, view=AutoroleView())
+        else:
+            msg = await channel.send(embed=embed, view=AutoroleView())
+
+        panels["autoroles"] = msg.id
+        db.set("panels", panels)
+
+        embed_success = Utils.create_embed("✅ Panel Creado", f"Panel creado en {channel.mention}", "success")
+        await ctx.send(embed=embed_success)
+    except Exception as e:
+        logger.error(f"Error creando panel autoroles: {e}")
+        await ctx.send("❌ Error al crear panel")
+
+@bot.command(name="setup-tickets")
+@Utils.admin_only()
+@commands.has_permissions(administrator=True)
+async def setup_tickets(ctx):
+    """Configura el panel de tickets"""
+    channel = bot.get_channel(Config.CANAL_TICKETS)
+    if not channel:
+        return await ctx.send("❌ Canal no encontrado")
 
     embed = discord.Embed(
         title="📩 CENTRO DE SOPORTE",
         description=(
-            "**Bienvenido al sistema de tickets**\n\n"
-            "__**REGLAS IMPORTANTES**__\n"
-            "1️⃣ Abre un ticket solo si es necesario\n"
-            "2️⃣ Describe tu problema detalladamente\n"
-            "3️⃣ No hagas spam ni menciones al staff\n"
-            "4️⃣ Sé respetuoso en todo momento\n\n"
-            "**Selecciona una opción abajo para comenzar:**"
+            "**Bienvenido al sistema de tickets de ServerPrueba**\n\n"
+            "**📋 REGLAS IMPORTANTES:**\n"
+            "1️⃣ Abre solo UN ticket por problema\n"
+            "2️⃣ Describe tu situación con detalles\n"
+            "3️⃣ No hagas spam ni menciones innecesarias\n"
+            "4️⃣ Sé respetuoso con el staff\n"
+            "5️⃣ No abras tickets por diversión\n\n"
+            "**Selecciona una categoría abajo para comenzar:**"
         ),
-        color=COLORS["info"]
+        color=Config.COLORS["info"]
     )
-    embed.set_image(url="https://i.imgur.com/5lR0X7f.png")
-    embed.set_footer(text="ServerPrueba • Respuesta promedio: < 1 hora")
+    embed.set_footer(text=Config.FOOTER_TEXT)
 
-    await channel.send(embed=embed, view=TicketView())
-    await ctx.send(embed=discord.Embed(title="✅ Panel Instalado", description=f"Panel de tickets instalado en {channel.mention}", color=COLORS["success"]))
+    try:
+        file = discord.File(Config.BANNER_FILE, filename="banner.jpg")
+        embed.set_image(url="attachment://banner.jpg")
+    except:
+        file = None
 
-@bot.command(name="close")
+    panels = db.get("panels")
+    if msg_id := panels.get("tickets"):
+        try:
+            msg = await channel.fetch_message(msg_id)
+            await msg.edit(embed=embed, attachments=[file] if file else [], view=TicketView())
+            embed_success = Utils.create_embed("✅ Panel Actualizado", "Panel de tickets actualizado", "success")
+            return await ctx.send(embed=embed_success)
+        except:
+            pass
+
+    try:
+        if file:
+            msg = await channel.send(file=file, embed=embed, view=TicketView())
+        else:
+            msg = await channel.send(embed=embed, view=TicketView())
+
+        panels["tickets"] = msg.id
+        db.set("panels", panels)
+
+        embed_success = Utils.create_embed("✅ Panel Creado", f"Panel creado en {channel.mention}", "success")
+        await ctx.send(embed=embed_success)
+    except Exception as e:
+        logger.error(f"Error creando panel tickets: {e}")
+
+@bot.command(name="close", aliases=["cerrar"])
 async def close_ticket(ctx):
+    """Cierra un ticket"""
     if "ticket-" not in ctx.channel.name.lower():
-        return await ctx.send(embed=discord.Embed(title="❌", description="Este comando solo funciona en tickets", color=COLORS["error"]), delete_after=5)
+        embed = Utils.create_embed("❌ Error", "Este comando solo funciona en canales de tickets", "error")
+        return await ctx.send(embed=embed, delete_after=5)
 
-    embed = discord.Embed(title="🔒 Cerrando Ticket", description="Este canal se eliminará en 5 segundos...", color=COLORS["warning"])
+    embed = Utils.create_embed("🔒 Cerrando Ticket", "Este canal se eliminará en 5 segundos...", "warning")
     await ctx.send(embed=embed)
-    await send_log(ctx.guild, "Ticket Cerrado", f"{ctx.channel.name} cerrado por {ctx.author.mention}", COLORS["warning"])
+
+    await Utils.send_log(ctx.guild, "🎫 Ticket Cerrado", f"{ctx.channel.name} cerrado por {ctx.author.mention}", Config.COLORS["warning"])
+
     await asyncio.sleep(5)
-    await ctx.channel.delete(reason=f"Cerrado por {ctx.author}")
+    try:
+        await ctx.channel.delete(reason=f"Cerrado por {ctx.author}")
+    except:
+        pass
 
-# =========================================
-# COMANDOS DE MODERACIÓN COMPLETOS
-# =========================================
-@bot.command()
-@admin_only()
+# Comandos de moderación completos
+@bot.command(name="kick")
+@Utils.admin_only()
 @commands.has_permissions(kick_members=True)
-async def kick(ctx, member: discord.Member, *, reason: str = "Sin razón especificada"):
-    await member.kick(reason=f"{reason} | Por: {ctx.author}")
-    embed = discord.Embed(title="👢 Usuario Expulsado", description=f"**Usuario:** {member.mention}\n**Razón:** {reason}\n**Moderador:** {ctx.author.mention}", color=COLORS["warning"])
-    await ctx.send(embed=embed)
-    await send_log(ctx.guild, "Kick", f"{member} expulsado por {ctx.author}: {reason}", COLORS["warning"])
+async def kick_cmd(ctx, member: discord.Member, *, reason: str = "Sin razón especificada"):
+    """Expulsa a un usuario"""
+    try:
+        await member.kick(reason=f"{reason} | Por: {ctx.author}")
+        embed = Utils.create_embed("👢 Usuario Expulsado", f"**Usuario:** {member.mention}\n**Razón:** {reason}\n**Moderador:** {ctx.author.mention}", "warning")
+        await ctx.send(embed=embed)
+        await Utils.send_log(ctx.guild, "👢 Kick", f"{member} expulsado por {ctx.author}", Config.COLORS["warning"])
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
 
-@bot.command()
-@admin_only()
+@bot.command(name="ban")
+@Utils.admin_only()
 @commands.has_permissions(ban_members=True)
-async def ban(ctx, member: discord.Member, duration: str = None, *, reason: str = "Sin razón"):
-    seconds = parse_duration(duration) if duration and parse_duration(duration) else None
+async def ban_cmd(ctx, member: discord.Member, *, reason: str = "Sin razón especificada"):
+    """Banea a un usuario"""
+    try:
+        await ctx.guild.ban(member, reason=f"{reason} | Por: {ctx.author}", delete_message_days=0)
+        embed = Utils.create_embed("🔨 Usuario Baneado", f"**Usuario:** {member.mention}\n**Razón:** {reason}", "error")
+        await ctx.send(embed=embed)
+        await Utils.send_log(ctx.guild, "🔨 Ban", f"{member} baneado por {ctx.author}", Config.COLORS["error"])
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
 
-    if seconds:
-        unban_time = datetime.now(timezone.utc) + timedelta(seconds=seconds)
-        tempbans[str(member.id)] = {"guild": ctx.guild.id, "unban": unban_time.isoformat()}
-        Database.save("tempbans.json", tempbans)
-        reason = f"{reason} | Temporal: {duration}"
-
-    await ctx.guild.ban(member, reason=f"{reason} | Por: {ctx.author}", delete_message_days=0)
-    embed = discord.Embed(title="🔨 Usuario Baneado", description=f"**Usuario:** {member.mention}\n**Razón:** {reason}\n**Moderador:** {ctx.author.mention}", color=COLORS["error"])
-    await ctx.send(embed=embed)
-    await send_log(ctx.guild, "Ban", f"{member} baneado por {ctx.author}", COLORS["error"])
-
-@bot.command()
-@admin_only()
+@bot.command(name="unban")
+@Utils.admin_only()
 @commands.has_permissions(ban_members=True)
-async def unban(ctx, user_id: int):
-    user = await bot.fetch_user(user_id)
-    await ctx.guild.unban(discord.Object(id=user_id), reason=f"Desbaneado por {ctx.author}")
-    await ctx.send(embed=discord.Embed(title="✅ Usuario Desbaneado", description=f"{user.mention} ha sido desbaneado", color=COLORS["success"]))
+async def unban_cmd(ctx, user_id: int):
+    """Desbanea a un usuario"""
+    try:
+        user = await bot.fetch_user(user_id)
+        await ctx.guild.unban(discord.Object(id=user_id), reason=f"Desbaneado por {ctx.author}")
+        embed = Utils.create_embed("✅ Usuario Desbaneado", f"{user.mention} ha sido desbaneado", "success")
+        await ctx.send(embed=embed)
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
 
-@bot.command()
-@admin_only()
+@bot.command(name="mute", aliases=["silenciar"])
+@Utils.admin_only()
 @commands.has_permissions(moderate_members=True)
-async def mute(ctx, member: discord.Member, duration: str, *, reason: str = "Sin razón"):
-    seconds = parse_duration(duration) or 600
-    await member.timeout(datetime.now(timezone.utc) + timedelta(seconds=seconds), reason=reason)
-    embed = discord.Embed(title="🔇 Usuario Silenciado", description=f"**Usuario:** {member.mention}\n**Duración:** {duration}\n**Razón:** {reason}", color=COLORS["warning"])
-    await ctx.send(embed=embed)
+async def mute_cmd(ctx, member: discord.Member, duration: str, *, reason: str = "Sin razón"):
+    """Silencia a un usuario temporalmente"""
+    seconds = Utils.parse_duration(duration)
+    if not seconds:
+        return await ctx.send("❌ Formato inválido. Usa: 10m, 1h, 1d")
 
-@bot.command()
-@admin_only()
+    try:
+        await member.timeout(datetime.now(timezone.utc) + timedelta(seconds=seconds), reason=reason)
+        embed = Utils.create_embed("🔇 Usuario Silenciado", f"**Usuario:** {member.mention}\n**Duración:** {duration}\n**Razón:** {reason}", "warning")
+        await ctx.send(embed=embed)
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
+
+@bot.command(name="unmute")
+@Utils.admin_only()
 @commands.has_permissions(moderate_members=True)
-async def unmute(ctx, member: discord.Member):
-    await member.timeout(None, reason=f"Unmute por {ctx.author}")
-    await ctx.send(embed=discord.Embed(title="🔊 Usuario Desilenciado", description=f"{member.mention} puede hablar de nuevo", color=COLORS["success"]))
+async def unmute_cmd(ctx, member: discord.Member):
+    """Quita el silencio a un usuario"""
+    try:
+        await member.timeout(None, reason=f"Unmute por {ctx.author}")
+        embed = Utils.create_embed("🔊 Usuario Desilenciado", f"{member.mention} puede hablar de nuevo", "success")
+        await ctx.send(embed=embed)
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
 
-@bot.command()
-@admin_only()
-@commands.has_permissions(kick_members=True)
-async def warn(ctx, member: discord.Member, *, reason: str):
-    user_warns = warnings.get(str(member.id), [])
-    user_warns.append({"reason": reason, "mod": ctx.author.id, "date": datetime.now().isoformat()})
-    warnings[str(member.id)] = user_warns
-    Database.save("warnings.json", warnings)
-    embed = discord.Embed(title="⚠️ Advertencia", description=f"{member.mention} ha sido advertido\n**Razón:** {reason}\n**Total warns:** {len(user_warns)}", color=COLORS["warning"])
-    await ctx.send(embed=embed)
-
-@bot.command()
-@admin_only()
-async def warnings(ctx, member: discord.Member):
-    user_warns = warnings.get(str(member.id), [])
-    if not user_warns:
-        return await ctx.send(embed=discord.Embed(title="✅ Sin Advertencias", description=f"{member.mention} no tiene warns", color=COLORS["success"]))
-    desc = "\n".join([f"`{i+1}.` {w['reason']} - <t:{int(datetime.fromisoformat(w['date']).timestamp())}:R>" for i, w in enumerate(user_warns[-10:])])
-    await ctx.send(embed=discord.Embed(title=f"⚠️ Warns de {member}", description=desc, color=COLORS["warning"]))
-
-@bot.command()
-@admin_only()
+@bot.command(name="clear", aliases=["purge", "limpiar"])
+@Utils.admin_only()
 @commands.has_permissions(manage_messages=True)
-async def clear(ctx, amount: int = 10):
+async def clear_cmd(ctx, amount: int = 5):
+    """Elimina mensajes"""
     amount = max(1, min(100, amount))
-    deleted = await ctx.channel.purge(limit=amount + 1)
-    await ctx.send(embed=discord.Embed(title="🧹 Limpieza", description=f"Se eliminaron {len(deleted)-1} mensajes", color=COLORS["success"]), delete_after=3)
+    try:
+        deleted = await ctx.channel.purge(limit=amount + 1)
+        embed = Utils.create_embed("🧹 Mensajes Eliminados", f"Se eliminaron {len(deleted) - 1} mensajes", "success")
+        await ctx.send(embed=embed, delete_after=3)
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
 
-@bot.command()
-@admin_only()
+@bot.command(name="lock", aliases=["bloquear"])
+@Utils.admin_only()
 @commands.has_permissions(manage_channels=True)
-async def lock(ctx, channel: discord.TextChannel = None):
+async def lock_cmd(ctx, channel: discord.TextChannel = None):
+    """Bloquea un canal"""
     ch = channel or ctx.channel
     await ch.set_permissions(ctx.guild.default_role, send_messages=False)
-    await ctx.send(embed=discord.Embed(title="🔒 Canal Bloqueado", description=f"{ch.mention} ha sido bloqueado", color=COLORS["error"]))
+    embed = Utils.create_embed("🔒 Canal Bloqueado", f"{ch.mention} ha sido bloqueado", "error")
+    await ctx.send(embed=embed)
 
-@bot.command()
-@admin_only()
+@bot.command(name="unlock", aliases=["desbloquear"])
+@Utils.admin_only()
 @commands.has_permissions(manage_channels=True)
-async def unlock(ctx, channel: discord.TextChannel = None):
+async def unlock_cmd(ctx, channel: discord.TextChannel = None):
+    """Desbloquea un canal"""
     ch = channel or ctx.channel
     await ch.set_permissions(ctx.guild.default_role, send_messages=None)
-    await ctx.send(embed=discord.Embed(title="🔓 Canal Desbloqueado", color=COLORS["success"]))
+    embed = Utils.create_embed("🔓 Canal Desbloqueado", f"{ch.mention} ha sido desbloqueado", "success")
+    await ctx.send(embed=embed)
 
-@bot.command()
-@admin_only()
-@commands.has_permissions(manage_channels=True)
-async def slowmode(ctx, seconds: int = 0):
-    await ctx.channel.edit(slowmode_delay=max(0, min(21600, seconds)))
-    await ctx.send(embed=discord.Embed(title="⏱️ Slowmode", description=f"Establecido a {seconds}s", color=COLORS["info"]))
-
-@bot.command()
-@admin_only()
-async def userinfo(ctx, member: discord.Member = None):
+@bot.command(name="userinfo", aliases=["ui", "user"])
+@Utils.admin_only()
+async def userinfo_cmd(ctx, member: discord.Member = None):
+    """Muestra información de un usuario"""
     m = member or ctx.author
-    embed = discord.Embed(title=f"Información de {m}", color=m.color)
+    embed = discord.Embed(title=f"Información de {m}", color=m.color or Config.COLORS["info"])
     embed.set_thumbnail(url=m.display_avatar.url)
     embed.add_field(name="ID", value=m.id, inline=True)
     embed.add_field(name="Bot", value="Sí" if m.bot else "No", inline=True)
     embed.add_field(name="Cuenta creada", value=f"<t:{int(m.created_at.timestamp())}:F>", inline=False)
-    embed.add_field(name="Se unió", value=f"<t:{int(m.joined_at.timestamp())}:F>", inline=False)
-    embed.add_field(name="Roles", value=len(m.roles)-1, inline=True)
+    if m.joined_at:
+        embed.add_field(name="Se unió", value=f"<t:{int(m.joined_at.timestamp())}:F>", inline=False)
+    embed.add_field(name="Roles", value=len(m.roles) - 1, inline=True)
+    embed.set_footer(text=Config.FOOTER_TEXT)
     await ctx.send(embed=embed)
 
-@bot.command()
-@admin_only()
-async def infoserver(ctx):
+@bot.command(name="infoserver", aliases=["serverinfo", "si"])
+@Utils.admin_only()
+async def infoserver_cmd(ctx):
+    """Muestra información del servidor"""
     g = ctx.guild
-    embed = discord.Embed(title=g.name, color=COLORS["info"])
-    if g.icon: embed.set_thumbnail(url=g.icon.url)
-    embed.add_field(name="ID", value=g.id)
-    embed.add_field(name="Dueño", value=g.owner.mention)
-    embed.add_field(name="Miembros", value=f"{g.member_count} ({len([m for m in g.members if not m.bot])} humanos)")
-    embed.add_field(name="Canales", value=f"{len(g.text_channels)} texto | {len(g.voice_channels)} voz")
-    embed.add_field(name="Roles", value=len(g.roles))
-    embed.add_field(name="Creado", value=f"<t:{int(g.created_at.timestamp())}:D>")
+    embed = discord.Embed(title=g.name, color=Config.COLORS["info"])
+    if g.icon:
+        embed.set_thumbnail(url=g.icon.url)
+    embed.add_field(name="ID", value=g.id, inline=True)
+    embed.add_field(name="Dueño", value=g.owner.mention if g.owner else "Desconocido", inline=True)
+    embed.add_field(name="Miembros", value=f"{g.member_count} total\n{len([m for m in g.members if not m.bot])} humanos", inline=True)
+    embed.add_field(name="Canales", value=f"{len(g.text_channels)} texto\n{len(g.voice_channels)} voz", inline=True)
+    embed.add_field(name="Roles", value=len(g.roles), inline=True)
+    embed.add_field(name="Creado", value=f"<t:{int(g.created_at.timestamp())}:D>", inline=True)
+    embed.set_footer(text=Config.FOOTER_TEXT)
     await ctx.send(embed=embed)
-
-@bot.command(name="anunciar")
-@admin_only()
-@commands.has_permissions(administrator=True)
-async def anunciar(ctx, *, mensaje: str):
-    channel = bot.get_channel(CANAL_GENERAL)
-    embed = discord.Embed(title="📢 ANUNCIO OFICIAL", description=mensaje, color=COLORS["error"], timestamp=datetime.now(timezone.utc))
-    embed.set_footer(text=f"Anunciado por {ctx.author}", icon_url=ctx.author.display_avatar.url)
-    await channel.send(content="@everyone", embed=embed)
-    await ctx.send("✅ Anuncio enviado")
 
 # =========================================
 # TAREAS AUTOMÁTICAS
 # =========================================
 @tasks.loop(minutes=5)
 async def update_stats():
-    if not stats: return
-    for guild_id, data in stats.items():
-        guild = bot.get_guild(int(guild_id))
-        if guild and "activos" in data:
-            activos = len([m for m in guild.members if not m.bot and m.status!= discord.Status.offline])
-            if channel := bot.get_channel(data["activos"]):
-                try: await channel.edit(name=f"🟢 Activos: {activos}")
-                except: pass
+    """Actualiza estadísticas de voz"""
+    try:
+        stats = db.get("stats")
+        if not stats:
+            return
+
+        for guild_id, data in stats.items():
+            guild = bot.get_guild(int(guild_id))
+            if not guild:
+                continue
+
+            if "activos" in data:
+                activos = len([m for m in guild.members if not m.bot and m.status!= discord.Status.offline])
+                channel = bot.get_channel(data["activos"])
+                if channel:
+                    try:
+                        await channel.edit(name=f"🟢 Activos: {activos}")
+                    except:
+                        pass
+    except Exception as e:
+        logger.error(f"Error en update_stats: {e}")
 
 @tasks.loop(minutes=1)
 async def check_tempbans():
-    now = datetime.now(timezone.utc)
-    to_remove = []
-    for user_id, data in tempbans.items():
-        unban_time = datetime.fromisoformat(data["unban"])
-        if now >= unban_time:
-            try:
-                guild = bot.get_guild(data["guild"])
-                if guild:
-                    await guild.unban(discord.Object(id=int(user_id)), reason="Ban temporal expirado")
-                    await send_log(guild, "Tempban Expirado", f"<@{user_id}> desbaneado automáticamente", COLORS["success"])
-            except: pass
-            to_remove.append(user_id)
-    for uid in to_remove: del tempbans[uid]
-    if to_remove: Database.save("tempbans.json", tempbans)
+    """Revisa bans temporales"""
+    try:
+        tempbans = db.get("tempbans")
+        now = datetime.now(timezone.utc)
+        to_remove = []
 
-@bot.command(name="stats")
-@admin_only()
-@commands.has_permissions(administrator=True)
-async def stats_cmd(ctx):
-    category = await ctx.guild.create_category("📊 ESTADÍSTICAS", position=0)
-    activos = await ctx.guild.create_voice_channel("🟢 Activos: 0", category=category)
-    for ch in [activos]:
-        await ch.set_permissions(ctx.guild.default_role, connect=False)
-    stats[str(ctx.guild.id)] = {"activos": activos.id}
-    Database.save("stats.json", stats)
-    await ctx.send(embed=discord.Embed(title="✅ Stats Creadas", color=COLORS["success"]))
+        for user_id, data in tempbans.items():
+            unban_time = datetime.fromisoformat(data["unban"])
+            if now >= unban_time:
+                try:
+                    guild = bot.get_guild(data["guild"])
+                    if guild:
+                        await guild.unban(discord.Object(id=int(user_id)), reason="Ban temporal expirado")
+                        await Utils.send_log(guild, "⏰ Tempban Expirado", f"<@{user_id}> desbaneado automáticamente", Config.COLORS["success"])
+                except:
+                    pass
+                to_remove.append(user_id)
 
-@bot.command(name="delstats")
-@admin_only()
-async def delstats_cmd(ctx):
-    if data := stats.pop(str(ctx.guild.id), None):
-        for ch_id in data.values():
-            if ch := bot.get_channel(ch_id):
-                await ch.delete()
-        Database.save("stats.json", stats)
-        await ctx.send("✅ Stats eliminadas")
+        for uid in to_remove:
+            del tempbans[uid]
 
-@bot.command(name="linkS")
-@admin_only()
-async def link_on(ctx):
-    antilink["enabled"] = True
-    Database.save("antilink.json", antilink)
-    await ctx.send(embed=discord.Embed(title="✅ Anti-Links ACTIVADO", color=COLORS["success"]))
-
-@bot.command(name="linkN")
-@admin_only()
-async def link_off(ctx):
-    antilink["enabled"] = False
-    Database.save("antilink.json", antilink)
-    await ctx.send(embed=discord.Embed(title="❌ Anti-Links DESACTIVADO", color=COLORS["error"]))
+        if to_remove:
+            db.set("tempbans", tempbans)
+    except Exception as e:
+        logger.error(f"Error en check_tempbans: {e}")
 
 # =========================================
-# INICIAR BOT
+# INICIO
 # =========================================
 if __name__ == "__main__":
-    bot.run(TOKEN)
+    if not Config.TOKEN:
+        logger.critical("❌ TOKEN no encontrado en.env")
+        exit(1)
+
+    try:
+        bot.run(Config.TOKEN, log_handler=None)
+    except Exception as e:
+        logger.critical(f"Error fatal: {e}")
