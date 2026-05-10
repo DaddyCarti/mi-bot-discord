@@ -35,7 +35,8 @@ async def menu(ctx):
     embed.add_field(name="👋 !hola", value="Te saludo personalmente.", inline=False)
     embed.add_field(name="📢 !anunciar <texto>", value="Solo admins, en canal admins → publica en #general", inline=False)
     embed.add_field(name="📜 !menu", value="Muestra este panel.", inline=False)
-    embed.set_footer(text=f"Solicitado por {ctx.author}", icon_url=ctx.author.display_avatar.url)
+    # PIE FIJO
+    embed.set_footer(text="Solicitado por ServerPrueba", icon_url=bot.user.display_avatar.url)
     await ctx.send(embed=embed)
 
 @bot.command(name="anunciar")
@@ -44,9 +45,8 @@ async def anunciar(ctx, *, mensaje: str):
     CANAL_ADMINS = 1502920731372163112
     CANAL_GENERAL = 1502889242072842303
 
-    # Solo funciona si lo escribes en el canal de admins
     if ctx.channel.id != CANAL_ADMINS:
-        return  # no hace nada en otros canales
+        return
 
     canal_general = bot.get_channel(CANAL_GENERAL)
     
@@ -55,9 +55,12 @@ async def anunciar(ctx, *, mensaje: str):
         description=mensaje,
         color=0xED4245
     )
-    embed.set_footer(text=f"Por {ctx.author.display_name}", icon_url=ctx.author.display_avatar.url)
+    # PIE FIJO, SIN TU NOMBRE
+    embed.set_footer(text="Enviado por ServerPrueba", icon_url=bot.user.display_avatar.url)
     
     await canal_general.send(embed=embed)
-    await ctx.message.add_reaction("✅")
+    # <-- QUITÉ la reacción, ya no pone ✅
+    # si quieres que borre tu comando en admins, descomenta la siguiente línea:
+    # await ctx.message.delete()
 
 bot.run(TOKEN)
