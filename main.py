@@ -10,7 +10,7 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True # necesario para banear
+intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -18,7 +18,6 @@ CANAL_ADMINS = 1502920731372163112
 CANAL_GENERAL = 1502889242072842303
 
 def parse_tiempo(texto):
-    # acepta 10s, 10seg, 5m, 2h, 3d, 1w, 1y, 1year
     match = re.match(r"(\d+)(s|seg|segundos?|m|min|h|hora|horas|d|dia|dias|w|semana|semanas|y|year|año|años)$", texto.lower())
     if not match: return None
     num, unidad = int(match[1]), match[2]
@@ -40,13 +39,20 @@ async def ping(ctx): await ctx.send("Pong!")
 @bot.command(name="hola")
 async def hola(ctx): await ctx.send(f"¡Hola {ctx.author.mention}! 👋")
 
+# --- MENÚ BONITO PARA USUARIOS ---
 @bot.command(name="menu")
 async def menu(ctx):
-    embed = discord.Embed(title="📜 Menú de Comandos", description="Comandos públicos:", color=0x5865F2)
-    embed.add_field(name="!ping", value="Prueba", inline=False)
-    embed.add_field(name="!hola", value="Saludo", inline=False)
-    embed.add_field(name="!menu", value="Este panel", inline=False)
-    embed.set_footer(text="Solicitado por ServerPrueba", icon_url=bot.user.display_avatar.url)
+    embed = discord.Embed(
+        title="📜 Menú de Comandos",
+        description="Aquí tienes todo lo que puedo hacer:",
+        color=0x5865F2
+    )
+    embed.set_thumbnail(url=bot.user.display_avatar.url)
+    embed.add_field(name="🏓!ping", value="Comprueba si estoy vivo.", inline=False)
+    embed.add_field(name="👋!hola", value="Te saludo personalmente.", inline=False)
+    embed.add_field(name="📢!anunciar <texto>", value="Solo admins, en canal admins → publica en #general", inline=False)
+    embed.add_field(name="📜!menu", value="Muestra este panel.", inline=False)
+    embed.set_footer(text="Bot Pruebas", icon_url=bot.user.display_avatar.url) # <-- AQUÍ
     await ctx.send(embed=embed)
 
 @bot.command(name="anunciar")
@@ -58,7 +64,6 @@ async def anunciar(ctx, *, mensaje: str):
     embed.set_footer(text="Enviado por ServerPrueba", icon_url=bot.user.display_avatar.url)
     await canal.send(embed=embed)
 
-# --- NUEVO PANEL ADMIN ---
 @bot.command(name="admi")
 @commands.has_permissions(ban_members=True)
 async def admi(ctx):
@@ -66,7 +71,7 @@ async def admi(ctx):
     embed = discord.Embed(title="🛡️ Panel Admin", description="Solo en canal admins", color=0xFAA61A)
     embed.add_field(name="!ban @usuario motivo tiempo", value="Ej: `!ban @Jairo mal comportamiento 2d`", inline=False)
     embed.add_field(name="!unban ID motivo", value="Ej: `!unban 123456789 volvió`", inline=False)
-    embed.add_field(name="Tiempos válidos", value="10s, 5m, 2h, 3d, 1w, 1y", inline=False)
+    embed.add_field(name="Tiempos", value="10s, 5m, 2h, 3d, 1w, 1y", inline=False)
     embed.set_footer(text="ServerPrueba Mod")
     await ctx.send(embed=embed)
 
@@ -74,28 +79,18 @@ async def admi(ctx):
 @commands.has_permissions(ban_members=True)
 async def ban(ctx, member: discord.Member, *, args=""):
     if ctx.channel.id!= CANAL_ADMINS: return
-
-    # separar motivo y tiempo
     partes = args.rsplit(" ", 1)
-    tiempo = None
-    motivo = args
-    if len(partes) == 2:
-        posible_tiempo = parse_tiempo(partes[1])
-        if posible_tiempo:
-            tiempo = posible_tiempo
-            motivo = partes[0]
-
+    tiempo = None; motivo = args
+    if len(partes)==2 and parse_tiempo(partes[1]):
+        tiempo = parse_tiempo(partes[1]); motivo = partes[0]
     if not motivo: motivo = "Sin motivo"
-
     await ctx.guild.ban(member, reason=f"{motivo} | por {ctx.author}")
-    await ctx.send(f"🔨 {member} baneado. Motivo: {motivo}" + (f" | Duración: {partes[1]}" if tiempo else ""))
-
+    await ctx.send(f"🔨 {member} baneado. Motivo: {motivo}" + (f" | {partes[1]}" if tiempo else ""))
     if tiempo:
         await asyncio.sleep(tiempo)
         try:
-            await ctx.guild.unban(discord.Object(id=member.id), reason="Ban temporal expirado")
-            canal = bot.get_channel(CANAL_ADMINS)
-            await canal.send(f"⏰ Unban automático: {member}")
+            await ctx.guild.unban(discord.Object(id=member.id))
+            await bot.get_channel(CANAL_ADMINS).send(f"⏰ Unban automático: {member}")
         except: pass
 
 @bot.command(name="unban")
@@ -103,9 +98,8 @@ async def ban(ctx, member: discord.Member, *, args=""):
 async def unban(ctx, user_id: int, *, motivo="Sin motivo"):
     if ctx.channel.id!= CANAL_ADMINS: return
     try:
-        await ctx.guild.unban(discord.Object(id=user_id), reason=f"{motivo} | por {ctx.author}")
-        await ctx.send(f"✅ Usuario {user_id} desbaneado. Motivo: {motivo}")
-    except:
-        await ctx.send("❌ No encontré ese ban.")
+        await ctx.guild.unban(discord.Object(id=user_id), reason=motivo)
+        await ctx.send(f"✅ {user_id} desbaneado.")
+    except: await ctx.send("❌ No encontré ese ban.")
 
 bot.run(TOKEN)
